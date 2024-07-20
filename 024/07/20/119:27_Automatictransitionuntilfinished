@@ -1,0 +1,94 @@
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+import os
+import re
+
+def get_property_info(url):
+    response = requests.get(url)
+    soup = BeautifulSoup(response.content, 'html.parser')
+
+    property_info_list = []
+
+    # 各物件カードを選択
+    property_cards = soup.select('ul.ApartmentList_apartment-list__wdh9q li')  # クラス名を更新
+
+    for card in property_cards:
+        name_tag = card.select_one('div.Heading_heading-block__t3e9F h3')
+        caption_elements = card.find_all('span', class_='Caption_caption__ex6T_')
+
+        if name_tag and caption_elements:
+            name = name_tag.text.strip()
+            address = caption_elements[0].text
+            station = caption_elements[1].text
+
+            # 駅名のみを抽出
+            station_name_match = re.search(r'「(.*?)駅」', station)
+            if station_name_match:
+                station = station_name_match.group(1) + "駅"
+
+            property_info_list.append({
+                '物件名称': name,
+                '住所': address,
+                '最寄り駅': station
+            })
+
+    return property_info_list
+
+def main():
+    base_url = 'https://www.leopalace21.com/properties/r?prefectureCode=11&areaCode=11203&layout=1%2C2&page='
+    all_properties = []
+    file_count = 1
+    page_num = 1
+
+    while True:
+        print(f"今データ抽出中だにゃ(=^・・^=) - ページ {page_num}")
+        url = base_url + str(page_num)
+        properties = get_property_info(url)
+        
+        if not properties:
+            print("データ取得が終了したにゃー(=^・^=)♡")
+            break
+        
+        all_properties.extend(properties)
+
+        # 100件ごとにファイルに保存
+        while len(all_properties) >= 100:
+            df = pd.DataFrame(all_properties[:100], columns=['物件名称', '住所', '最寄り駅'])
+
+            # 出力ファイルパスをユーザーのドキュメントフォルダに設定
+            output_directory = os.path.join(os.path.expanduser('~'), 'Documents')
+            output_file_path = os.path.join(output_directory, f'leopalace_properties_info_{file_count}.csv')
+
+            df.to_csv(output_file_path, index=False, encoding='utf-8-sig')
+            print(f"物件情報がCSVファイル '{output_file_path}' に保存されたよ！")
+            print(f"CSVファイルに出力した件数: {len(df)}")
+
+            # インクリメントして次のファイル名を設定
+            file_count += 1
+
+            # 保存したデータをリストから削除
+            all_properties = all_properties[10:]
+
+        page_num += 1
+
+    # 残ったデータがあれば保存
+    if all_properties:
+        df = pd.DataFrame(all_properties, columns=['物件名称', '住所', '最寄り駅'])
+        output_directory = os.path.join(os.path.expanduser('~'), 'Documents')
+        output_file_path = os.path.join(output_directory, f'leopalace_properties_info_{file_count}.csv')
+        df.to_csv(output_file_path, index=False, encoding='utf-8-sig')
+        print(f"物件情報がCSVファイル '{output_file_path}' に保存されたよ！")
+        print(f"CSVファイルに出力した件数: {len(df)}")
+
+    print("抽出したデータサンプル:")
+    print(df)
+    print(f"総レコード数: {len(all_properties) + (file_count - 1) * 10}")
+
+if __name__ == "__main__":
+    main()
+    
+#2024/07/20レオパレスのWebサイトのクローラーで、2024/7/20/18：20に作成したものです。
+#100件毎に新規ファイルをインクリメントして、末尾の数字を増やしていきます。
+#ページが終わるまでデータ取得します。
+#矢野さん、営業マンが嬉しいように、駅名だけが最寄り駅に入る仕様です。
