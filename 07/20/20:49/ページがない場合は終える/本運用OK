@@ -1,0 +1,114 @@
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+import os
+import re
+
+def get_property_info(url):
+    try:
+        # 指定されたURLからデータを取得
+        response = requests.get(url)
+        response.raise_for_status()  # ステータスコードが200でない場合、例外を発生させる
+    except requests.exceptions.RequestException as e:
+        print(f"リクエストに失敗しました: {e}")
+        return []
+
+    soup = BeautifulSoup(response.content, 'html.parser')
+
+    property_info_list = []
+
+    # 各物件カードを選択
+    property_cards = soup.select('ul.ApartmentList_apartment-list__wdh9q li')  # クラス名を更新
+
+    for card in property_cards:
+        # 物件名称と住所、最寄り駅を取得
+        name_tag = card.select_one('div.Heading_heading-block__t3e9F h3')
+        caption_elements = card.find_all('span', class_='Caption_caption__ex6T_')
+
+        if name_tag and caption_elements:
+            name = name_tag.text.strip()
+            address = caption_elements[0].text
+            station = caption_elements[1].text
+
+            # 駅名のみを抽出
+            station_name_match = re.search(r'「(.*?)駅」', station)
+            if station_name_match:
+                station = station_name_match.group(1) + "駅"
+
+            # 物件情報をリストに追加
+            property_info_list.append({
+                '物件名称': name,
+                '住所': address,
+                '最寄り駅': station
+            })
+
+    return property_info_list
+
+def main():
+    # ベースとなるURLを設定
+    base_url = 'https://www.leopalace21.com/properties/r?prefectureCode=11&areaCode=11203&layout=1&page='
+    all_properties = []
+    file_count = 1
+    page_num = 1
+    total_count = 0
+    max_retries = 3
+
+    while True:
+        print(f"今データ抽出中だにゃ(=^・・^=) - ページ {page_num}")
+        url = base_url + str(page_num)
+        retries = 0
+
+        while retries < max_retries:
+            properties = get_property_info(url)
+            if properties:
+                break
+            retries += 1
+            print(f"再試行中... ({retries}/{max_retries})")
+
+        if retries == max_retries:
+            print("データ取得が終了したにゃー(=^・^=)♡")
+            break
+
+        # 取得した物件情報をリストに追加し、総件数をカウント
+        all_properties.extend(properties)
+        total_count += len(properties)
+
+        # 100件ごとにファイルに保存
+        while len(all_properties) >= 100:
+            df = pd.DataFrame(all_properties[:100], columns=['物件名称', '住所', '最寄り駅'])
+
+            # 出力ファイルパスをユーザーのドキュメントフォルダに設定
+            output_directory = os.path.join(os.path.expanduser('~'), 'Documents')
+            output_file_path = os.path.join(output_directory, f'leopalace_properties_info_{file_count}.csv')
+
+            df.to_csv(output_file_path, index=False, encoding='utf-8-sig')
+            print(f"物件情報がCSVファイル '{output_file_path}' に保存されたよ！")
+            print(f"CSVファイルに出力した件数: {len(df)}")
+
+            # インクリメントして次のファイル名を設定
+            file_count += 1
+
+            # 保存したデータをリストから削除
+            all_properties = all_properties[100:]
+
+        page_num += 1
+
+    # 残ったデータがあれば保存
+    if all_properties:
+        df = pd.DataFrame(all_properties, columns=['物件名称', '住所', '最寄り駅'])
+        output_directory = os.path.join(os.path.expanduser('~'), 'Documents')
+        output_file_path = os.path.join(output_directory, f'leopalace_properties_info_{file_count}.csv')
+        df.to_csv(output_file_path, index=False, encoding='utf-8-sig')
+        print(f"物件情報がCSVファイル '{output_file_path}' に保存されたよ！")
+        print(f"CSVファイルに出力した件数: {len(df)}")
+
+        # データサンプルを表示
+        print("抽出したデータサンプル:")
+        print(df)
+    else:
+        print("データが見つからなかったにゃー(=^・^=)")
+
+    print(f"CSVファイルに出力した総件数: {total_count}で、出力ファイルへの書き込みが完了したにゃー(=^・^=)♡")
+
+if __name__ == "__main__":
+    main()
